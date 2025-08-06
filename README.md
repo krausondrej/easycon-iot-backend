@@ -11,7 +11,7 @@
 1. Klon:
 
 ```bash
-git clone https://github.com/<uživatel>/<repo>.git
+git clone https://github.com/krausondrej/easycon-iot-backend.git
 cd <repo>
 ```
 
