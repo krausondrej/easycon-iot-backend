@@ -12,7 +12,6 @@
 
 ```bash
 git clone https://github.com/krausondrej/easycon-iot-backend.git
-cd <repo>
 ```
 
 2. Docker Compose:
