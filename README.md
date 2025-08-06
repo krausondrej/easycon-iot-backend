@@ -32,3 +32,7 @@ docker-compose run --rm tests
 - MQTT broker je ve výchozím nastavení bez TLS a autentizace.
 - Testy využívají mocking a běží odděleně od reálných zařízení.
 - Do `.env` pridat vlastni SECRET_KEY.
+
+## Architektura systému
+
+![Diagram](diagram.png)
