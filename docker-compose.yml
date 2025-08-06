@@ -1,0 +1,152 @@
+services:
+  postgres:
+    image: postgres:14
+    restart: always
+    env_file:
+      - backend/.env
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - modbus_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mongodb:
+    image: mongo:6
+    restart: always
+    env_file:
+      - backend/.env
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodbdata:/data/db
+    networks:
+      - modbus_network
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --eval \"db.runCommand({ ping: 1 })\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: always
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config
+      - ./mosquitto/data:/mosquitto/data
+      - ./mosquitto/log:/mosquitto/log
+    networks:
+      - modbus_network
+
+  mqtt_subscriber:
+    build:
+      context: ./mqtt_subscriber
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - backend/.env
+    depends_on:
+      - mongodb
+      - mosquitto
+    networks:
+      - modbus_network
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: backend
+    restart: always
+    env_file:
+      - backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    command: ["gunicorn", "backend.wsgi:application", "--bind", "0.0.0.0:8000"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - modbus_network
+
+  modbus_server:
+    build:
+      context: ./modbus_server
+      dockerfile: Dockerfile
+    container_name: modbus_server
+    restart: always
+    env_file:
+      - backend/.env
+    networks:
+      - modbus_network
+
+  modbus_client:
+    build:
+      context: ./modbus_client
+      dockerfile: Dockerfile
+    container_name: modbus_client
+    restart: always
+    env_file:
+      - backend/.env
+    networks:
+      - modbus_network
+
+  mqtt_client:
+    build:
+      context: ./mqtt_client
+      dockerfile: Dockerfile
+    container_name: mqtt_client
+    restart: always
+    env_file:
+      - backend/.env
+    depends_on:
+      - mosquitto
+      - postgres
+      - mongodb
+    networks:
+      - modbus_network
+
+  tests:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: tests
+    restart: "no"
+    command: pytest --maxfail=1 --disable-warnings -v
+    env_file:
+      - backend/.env
+    depends_on:
+      - postgres
+      - mongodb
+    volumes:
+      - ./tests:/tests
+      - ./modbus_client:/modbus_client
+      - ./mqtt_client:/mqtt_client
+      - ./modbus_server:/modbus_server
+      - ./mqtt_subscriber:/app/mqtt_subscriber
+    networks:
+      - modbus_network
+
+networks:
+  modbus_network:
+    driver: bridge
+
+volumes:
+  pgdata:
+  mongodbdata:

@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}Device Dashboard{% endblock %}
+
+{% block content %}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white p-4 rounded shadow">
+    <label for="client-select" class="block font-semibold mb-2">Choose device:</label>
+    <select id="client-select" class="block w-full border rounded p-2">
+      <option value="">–– all ––</option>
+    </select>
+  </div>
+  <div class="bg-white p-4 rounded shadow flex space-x-2 items-end">
+    <button id="btn-start" disabled class="flex-1 py-2 bg-green-500 text-white rounded hover:bg-green-600">
+      Start
+    </button>
+    <button id="btn-stop" disabled class="flex-1 py-2 bg-red-500 text-white rounded hover:bg-red-600">
+      Stop
+    </button>
+  </div>
+  <div class="bg-white p-4 rounded shadow flex items-center">
+    <div id="status-msg" class="text-lg font-medium text-gray-700">Select a device to see status.</div>
+  </div>
+</div>
+
+<div class="bg-white p-4 rounded shadow overflow-auto mb-6">
+  <table class="min-w-full divide-y divide-gray-200">
+    <thead class="bg-gray-50">
+      <tr>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Device ID</th>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Timestamp</th>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Temperature</th>
+        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Humidity</th>
+      </tr>
+    </thead>
+    <tbody id="data-table" class="bg-white divide-y divide-gray-200">
+      <tr><td colspan="4" class="px-4 py-2 text-center text-gray-500">Loading data…</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="bg-white p-4 rounded shadow">
+  <canvas id="chart" class="w-full h-64"></canvas>
+</div>
+
+{% csrf_token %}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+function getCookie(name) {
+  let cookieValue = null;
+  if (document.cookie && document.cookie !== '') {
+    document.cookie.split(';').forEach(cookie => {
+      const [key, val] = cookie.trim().split('=');
+      if (key === name) cookieValue = decodeURIComponent(val);
+    });
+  }
+  return cookieValue;
+}
+const csrftoken = getCookie('csrftoken');
+let clientState = {};
+let chart;
+
+async function fetchClients() {
+  const res = await fetch('/api/clients/');
+  const clients = await res.json();
+  const sel = document.getElementById('client-select');
+  clients.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.id;
+    opt.textContent = `${c.id} – ${c.name}`;
+    sel.appendChild(opt);
+  });
+}
+
+async function fetchData(clientId) {
+  let url = '/api/data/';
+  if (clientId) url += '?client=' + clientId;
+  const res = await fetch(url);
+  const data = await res.json();
+  updateTable(data);
+  updateChart(data);
+}
+
+function updateTable(data) {
+  const tbody = document.getElementById('data-table');
+  tbody.innerHTML = '';
+  if (!data.length) {
+    tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-2 text-center text-gray-500">No data</td></tr>';
+    return;
+  }
+  data.forEach(d => {
+    const date = new Date(d.timestamp).toLocaleString();
+    const row = `<tr>
+      <td class="px-4 py-2">${d.device_id}</td>
+      <td class="px-4 py-2">${date}</td>
+      <td class="px-4 py-2">${d.temperature}</td>
+      <td class="px-4 py-2">${d.humidity}</td>
+    </tr>`;
+    tbody.insertAdjacentHTML('beforeend', row);
+  });
+}
+
+function initChart() {
+  const ctx = document.getElementById('chart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Temperature', data: [], tension: 0.4 }] },
+    options: { responsive: true, scales: { x: { display: true }, y: { display: true } } }
+  });
+}
+
+function updateChart(data) {
+  chart.data.labels = data.map(d => new Date(d.timestamp).toLocaleTimeString());
+  chart.data.datasets[0].data = data.map(d => d.temperature);
+  chart.update();
+}
+
+async function sendCommand(clientId, command) {
+  const res = await fetch(`/api/clients/${clientId}/control/`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrftoken },
+    body: JSON.stringify({ command })
+  });
+  if (!res.ok) {
+    const err = await res.text(); alert('Error sending command: ' + err);
+    return;
+  }
+  const result = await res.json();
+  clientState[clientId] = result.status;
+  document.getElementById('status-msg').textContent = `Device ${clientId} is ${result.status}`;
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
+  initChart();
+  const sel = document.getElementById('client-select');
+  const startBtn = document.getElementById('btn-start');
+  const stopBtn = document.getElementById('btn-stop');
+
+  sel.addEventListener('change', e => {
+    const id = e.target.value;
+    fetchData(id);
+    startBtn.disabled = !id;
+    stopBtn.disabled = !id;
+    document.getElementById('status-msg').textContent = id ? 'Device ' + id + ' status: ' + (clientState[id] || 'unknown') : 'Select a device to see status.';
+  });
+
+  startBtn.addEventListener('click', () => sendCommand(sel.value, 'start'));
+  stopBtn.addEventListener('click',  () => sendCommand(sel.value, 'stop'));
+
+  await fetchClients();
+  fetchData('');
+});
+</script>
+{% endblock %}

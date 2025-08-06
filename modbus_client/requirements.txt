@@ -1,0 +1,4 @@
+pymodbus
+python-dotenv
+pymongo
+requests>=2.0
